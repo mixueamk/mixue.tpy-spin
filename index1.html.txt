@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>蜜雪冰城 消暑转盘 | MIXUE Lucky Spin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #ff4d4d 0%, #ff9999 100%);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .logo { 
+            font-size: 28px; font-weight: bold; color: white; margin: 10px 0; 
+            text-shadow: 2px 2px 0 #c0392b; text-align: center; 
+        }
+        .logo .en { font-size: 13px; font-weight: normal; display: block; text-shadow: 1px 1px 0 #c0392b; }
+        .container {
+            background: white; border-radius: 30px; padding: 25px 20px;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.3); width: 100%; max-width: 400px;
+            text-align: center;
+        }
+        .wheel-container { position: relative; width: 280px; height: 280px; margin: 0 auto 10px; }
+        canvas { width: 100%; height: 100%; display: block; }
+        .pointer {
+            position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+            font-size: 36px; color: #ff4d4d; filter: drop-shadow(0 4px 4px rgba(0,0,0,0.3));
+            z-index: 10;
+        }
+        .date-display {
+            background: #fff5f5;
+            border: 2px dashed #ff4d4d;
+            border-radius: 12px;
+            padding: 8px 16px;
+            margin: 8px auto 12px;
+            display: inline-block;
+            text-align: center;
+        }
+        .date-display .cn { 
+            font-size: 16px; font-weight: bold; color: #c0392b; 
+        }
+        .date-display .en { 
+            font-size: 12px; color: #888; display: block; 
+        }
+        input {
+            width: 100%; padding: 12px; border: 2px solid #ff4d4d; border-radius: 15px;
+            font-size: 16px; margin: 10px 0; text-align: center;
+        }
+        button {
+            background: #ff4d4d; border: none; color: white; font-size: 20px; padding: 14px 30px;
+            border-radius: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 5px 0 #c0392b;
+            transition: 0.1s; width: 80%; margin: 10px auto; display: block;
+        }
+        button:active { transform: translateY(2px); box-shadow: 0 2px 0 #c0392b; }
+        button:disabled { background: #aaa; box-shadow: 0 4px 0 #777; cursor: not-allowed; }
+        .message { 
+            margin-top: 15px; font-size: 17px; font-weight: bold; min-height: 48px; 
+            color: #c0392b; line-height: 1.5; 
+        }
+        .message .en { font-size: 13px; font-weight: normal; color: #888; display: block; }
+        .note { font-size: 12px; color: #666; margin-top: 10px; }
+        .note .en { font-size: 10px; color: #999; display: block; }
+    </style>
+</head>
+<body>
+    <div class="logo">
+        🍦 蜜雪冰城 · Toa Payoh Central
+        <span class="en">MIXUE · Toa Payoh Central</span>
+    </div>
+    <div class="container">
+        <div class="wheel-container">
+            <div class="pointer">▼</div>
+            <canvas id="wheelCanvas" width="560" height="560"></canvas>
+        </div>
+        <div class="date-display" id="dateDisplay">
+            <span class="cn"></span>
+            <span class="en"></span>
+        </div>
+        <input type="tel" id="phoneInput" placeholder="新加坡手机号 | SG Mobile (9xxxxxxx)" />
+        <button id="spinBtn" onclick="spin()">🎡 开始抽奖 | SPIN</button>
+        <div class="message" id="resultMsg"></div>
+        <div class="note">
+            每天每号限抽1次，请截图保存，到店出示兑换
+            <span class="en">Once per day. Screenshot & show in store to redeem.</span>
+        </div>
+    </div>
+
+    <script>
+        // ========== 配置区 ==========
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwcdpr58FN8f2s2V-_x_UfBIBA7p9rs2SBT5yB3BxHc_0bL8ewQY4B0o6d-qZeN6Qo/exec';
+        const PRIZES = [
+            { name: '整杯免单\nFree Drink', color: '#FFD700', weight: 2 },
+            { name: '免费加两份小料\n2x Free Topping', color: '#00CED1', weight: 8 },
+            { name: '芋圆一份免费\nFree Taro Balls', color: '#DA70D6', weight: 10 },
+            { name: '蜜雪礼品\nMIXUE Gift', color: '#FF8C00', weight: 15 },
+            { name: '谢谢参与\nTry Again', color: '#B0C4DE', weight: 35 }
+        ];
+        const WEIGHTED_PRIZES = [];
+        PRIZES.forEach(p => {
+            for (let i = 0; i < p.weight; i++) WEIGHTED_PRIZES.push(p.name);
+        });
+        // ===========================
+
+        const canvas = document.getElementById('wheelCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinBtn = document.getElementById('spinBtn');
+        const phoneInput = document.getElementById('phoneInput');
+        const resultMsg = document.getElementById('resultMsg');
+        const dateDisplayCN = document.querySelector('#dateDisplay .cn');
+        const dateDisplayEN = document.querySelector('#dateDisplay .en');
+        let spinning = false;
+        let currentPrize = null;
+
+        const logoImg = new Image();
+        logoImg.src = 'logo.png';
+
+        function updateDateDisplay() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const weekdaysCN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+            const weekdaysEN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const wd = now.getDay();
+            dateDisplayCN.textContent = `📅 ${year}年${month}月${day}日 ${weekdaysCN[wd]}`;
+            dateDisplayEN.textContent = `${year}-${month}-${day} ${weekdaysEN[wd]}`;
+        }
+
+        function drawWheel(rotationDeg) {
+            const center = 280;
+            const radius = 260;
+            const angleStep = (2 * Math.PI) / PRIZES.length;
+            const rotationRad = (rotationDeg * Math.PI) / 180;
+            ctx.clearRect(0, 0, 560, 560);
+
+            for (let i = 0; i < PRIZES.length; i++) {
+                const startAngle = i * angleStep + rotationRad;
+                const endAngle = startAngle + angleStep;
+                ctx.beginPath();
+                ctx.moveTo(center, center);
+                ctx.arc(center, center, radius, startAngle, endAngle);
+                ctx.closePath();
+                ctx.fillStyle = PRIZES[i].color;
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.save();
+                ctx.translate(center, center);
+                ctx.rotate(startAngle + angleStep / 2);
+                ctx.textAlign = "center";
+                const lines = PRIZES[i].name.split('\n');
+                ctx.fillStyle = "#333";
+                ctx.font = "bold 16px Arial";
+                ctx.fillText(lines[0], radius - 75, -4);
+                ctx.fillStyle = "#555";
+                ctx.font = "11px Arial";
+                ctx.fillText(lines[1] || '', radius - 75, 14);
+                ctx.restore();
+            }
+
+            ctx.beginPath();
+            ctx.arc(center, center, 50, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.strokeStyle = '#ff4d4d';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            if (logoImg.complete && logoImg.naturalWidth > 0) {
+                const imgSize = 80;
+                ctx.drawImage(logoImg, center - imgSize/2, center - imgSize/2, imgSize, imgSize);
+            } else {
+                ctx.fillStyle = '#ff4d4d';
+                ctx.font = "bold 22px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText("雪王", center, center + 8);
+                ctx.fillStyle = '#999';
+                ctx.font = "11px Arial";
+                ctx.fillText("MIXUE", center, center + 22);
+            }
+        }
+
+        function getRandomPrize() {
+            const rand = Math.floor(Math.random() * WEIGHTED_PRIZES.length);
+            return WEIGHTED_PRIZES[rand];
+        }
+
+        function isValidSgPhone(phone) {
+            return /^[89]\d{7}$/.test(phone);
+        }
+
+        function hasSpunToday(phone) {
+            const today = new Date().toDateString();
+            const record = JSON.parse(localStorage.getItem('mxbc_spin')) || {};
+            if (record[phone] && record[phone].date === today) {
+                return true;
+            }
+            return false;
+        }
+
+        function saveSpinRecord(phone, prize) {
+            const today = new Date().toDateString();
+            const record = JSON.parse(localStorage.getItem('mxbc_spin')) || {};
+            record[phone] = { date: today, prize: prize };
+            localStorage.setItem('mxbc_spin', JSON.stringify(record));
+        }
+
+        async function logToSheet(phone, prize) {
+            try {
+                const prizeCN = prize.split('\n')[0];
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone: phone, prize: prizeCN })
+                });
+            } catch (e) {
+                console.log('记录失败，但可重试', e);
+            }
+        }
+
+        async function spin() {
+            if (spinning) return;
+            const phone = phoneInput.value.trim();
+            if (!isValidSgPhone(phone)) {
+                alert('请输入有效的新加坡手机号（8位，9/8开头）\nPlease enter a valid SG mobile number (8 digits, starting with 8 or 9)');
+                return;
+            }
+            if (hasSpunToday(phone)) {
+                alert('您今天已经抽过啦，明天再来吧！\nYou have already spun today. Come back tomorrow!');
+                return;
+            }
+            spinning = true;
+            spinBtn.disabled = true;
+            resultMsg.innerHTML = '';
+
+            currentPrize = getRandomPrize();
+            const prizeLines = currentPrize.split('\n');
+            const prizeCN = prizeLines[0];
+            const prizeEN = prizeLines[1] || '';
+            const prizeIndex = PRIZES.findIndex(p => p.name === currentPrize);
+            const anglePerPrize = 360 / PRIZES.length;
+            const targetAbsoluteAngle = (270 - (prizeIndex * anglePerPrize + anglePerPrize / 2) + 360) % 360;
+            let currentRotation = parseFloat(canvas.dataset.rotation) || 0;
+            let delta = (targetAbsoluteAngle - currentRotation + 360) % 360;
+            const spins = 5 + Math.floor(Math.random() * 5);
+            const totalDelta = delta + 360 * spins;
+
+            const startRotation = currentRotation;
+            const duration = 4000;
+            const startTime = Date.now();
+
+            function animate() {
+                const now = Date.now();
+                const elapsed = now - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const ease = 1 - Math.pow(1 - progress, 3);
+                const newRotation = startRotation + totalDelta * ease;
+                drawWheel(newRotation);
+                canvas.dataset.rotation = newRotation;
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    spinning = false;
+                    spinBtn.disabled = false;
+                    resultMsg.innerHTML = `🎉 恭喜获得：${prizeCN} ！请截图，到店出示兑换。<span class="en">You won: ${prizeEN}! Screenshot & show in store.</span>`;
+                    saveSpinRecord(phone, prizeCN);
+                    logToSheet(phone, currentPrize);
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        updateDateDisplay();
+        drawWheel(0);
+        canvas.dataset.rotation = 0;
+    </script>
+</body>
+</html>
